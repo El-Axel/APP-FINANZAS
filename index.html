@@ -75,6 +75,13 @@ header.top p{margin:4px 0 0; color:var(--sub); font-size:14px;}
 .item button.del:hover{color:var(--rust); background:var(--rust-soft);}
 .empty{color:var(--sub); font-size:13.5px; padding:10px 2px;}
 
+.status-btn{border:none; border-radius:7px; padding:4px 10px; font-size:11.5px; font-weight:600; cursor:pointer; white-space:nowrap;}
+.status-btn.pending{background:var(--rust-soft); color:var(--rust);}
+.status-btn.paid{background:var(--teal-soft); color:var(--teal);}
+.item.is-paid .desc{opacity:.5; text-decoration:line-through;}
+.item.is-paid .amt{opacity:.5;}
+.card h2 .pending-flag{font-size:11.5px; font-weight:600; color:var(--rust); background:var(--rust-soft); padding:3px 8px; border-radius:20px; margin-left:8px;}
+
 form.add{display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;}
 form.add input, form.add select{
   background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:9px 10px;
@@ -146,7 +153,7 @@ footer.actions button:hover{border-color:var(--teal); color:var(--teal);}
     </div>
 
     <div class="card">
-      <h2><span><span class="dot rust"></span>Gastos fijos</span><span class="tot" id="totFixed">$0</span></h2>
+      <h2><span><span class="dot rust"></span>Gastos fijos<span class="pending-flag" id="pendFixed" style="display:none;"></span></span><span class="tot" id="totFixed">$0</span></h2>
       <div class="row-list" id="listFixed"></div>
       <form class="add" data-type="fixed">
         <input class="desc-in" placeholder="Descripción (ej. arriendo)" required>
@@ -157,7 +164,7 @@ footer.actions button:hover{border-color:var(--teal); color:var(--teal);}
     </div>
 
     <div class="card">
-      <h2><span><span class="dot rust"></span>Gastos variables</span><span class="tot" id="totVar">$0</span></h2>
+      <h2><span><span class="dot rust"></span>Gastos variables<span class="pending-flag" id="pendVar" style="display:none;"></span></span><span class="tot" id="totVar">$0</span></h2>
       <div class="row-list" id="listVar"></div>
       <form class="add" data-type="variable">
         <input class="desc-in" placeholder="Descripción" required>
@@ -172,7 +179,7 @@ footer.actions button:hover{border-color:var(--teal); color:var(--teal);}
     </div>
 
     <div class="card">
-      <h2><span><span class="dot amber"></span>Ahorro</span><span class="tot" id="totSave">$0</span></h2>
+      <h2><span><span class="dot amber"></span>Ahorro<span class="pending-flag" id="pendSave" style="display:none;"></span></span><span class="tot" id="totSave">$0</span></h2>
       <div class="row-list" id="listSave"></div>
       <form class="add" data-type="savings">
         <input class="desc-in" placeholder="Descripción (ej. fondo emergencia)" required>
@@ -217,7 +224,7 @@ function getMonth(key){
   if(!data.months[key]){
     data.months[key] = {
       income: [],
-      fixed: data.fixedTemplate.map(f => ({...f})),
+      fixed: data.fixedTemplate.map(f => ({...f, paid:false})),
       variable: [],
       savings: []
     };
@@ -236,16 +243,29 @@ function removeFixedEverywhere(id){
 
 function uid(){ return Math.random().toString(36).slice(2,9); }
 
+const STATUS_TYPES = ['fixed','variable','savings'];
+
 function renderList(el, items, type){
   el.innerHTML = '';
   if(!items.length){
     el.innerHTML = '<div class="empty">Nada registrado todavía.</div>';
     return;
   }
-  items.forEach(it => {
+  const hasStatus = STATUS_TYPES.includes(type);
+  const ordered = hasStatus ? [...items].sort((a,b)=> (a.paid===b.paid)?0:(a.paid?1:-1)) : items;
+  ordered.forEach(it => {
     const row = document.createElement('div');
-    row.className = 'item';
-    row.innerHTML = `<span class="desc">${it.desc}</span>${it.cat?`<span class="cat">${it.cat}</span>`:''}<span class="amt">${fmt(it.amount)}</span><button class="del" title="Eliminar">✕</button>`;
+    row.className = 'item' + (hasStatus && it.paid ? ' is-paid' : '');
+    const statusBtn = hasStatus
+      ? `<button class="status-btn ${it.paid?'paid':'pending'}" title="Cambiar estado">${it.paid?'Pagado':'Pendiente'}</button>`
+      : '';
+    row.innerHTML = `<span class="desc">${it.desc}</span>${it.cat?`<span class="cat">${it.cat}</span>`:''}<span class="amt">${fmt(it.amount)}</span>${statusBtn}<button class="del" title="Eliminar">✕</button>`;
+    if(hasStatus){
+      row.querySelector('.status-btn').onclick = () => {
+        it.paid = !it.paid;
+        save(); render();
+      };
+    }
     row.querySelector('.del').onclick = () => {
       if(type==='fixed'){ removeFixedEverywhere(it.id); }
       else { getMonth(todayKey(current))[type] = getMonth(todayKey(current))[type].filter(x=>x.id!==it.id); }
@@ -356,6 +376,17 @@ function render(){
   document.getElementById('sumFixed').textContent = fmt(fix);
   document.getElementById('sumVar').textContent = fmt(varr);
   document.getElementById('sumSave').textContent = fmt(sav);
+
+  const setPendFlag = (elId, items) => {
+    const pending = items.filter(x=>!x.paid);
+    const el = document.getElementById(elId);
+    if(pending.length){ el.style.display='inline'; el.textContent = `${pending.length} pendiente${pending.length>1?'s':''}`; }
+    else{ el.style.display='none'; }
+  };
+  setPendFlag('pendFixed', m.fixed);
+  setPendFlag('pendVar', m.variable);
+  setPendFlag('pendSave', m.savings);
+
   const remainEl = document.getElementById('remainingAmt');
   remainEl.textContent = fmt(remain);
   remainEl.className = 'amount ' + (remain>=0?'pos':'neg');
@@ -375,7 +406,7 @@ document.querySelectorAll('form.add').forEach(f=>{
     const amount = parseFloat(f.querySelector('.amt-in').value);
     const cat = f.querySelector('.cat-in') ? f.querySelector('.cat-in').value : null;
     if(!desc || isNaN(amount)) return;
-    const item = { id: uid(), desc, amount, ...(cat?{cat}:{}) };
+    const item = { id: uid(), desc, amount, ...(cat?{cat}:{}), ...(type!=='income'?{paid:false}:{}) };
     if(type === 'fixed'){ addFixedToAllMonths(item); }
     else { getMonth(todayKey(current))[type].push(item); }
     f.querySelector('.desc-in').value=''; f.querySelector('.amt-in').value='';
