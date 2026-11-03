@@ -55,7 +55,10 @@ const HELP =
 
 async function handleMessage(msg) {
   // Solo atendemos TU número. Cualquier otro se ignora en silencio.
-  if (!env.ALLOWED_PHONE || msg.from !== env.ALLOWED_PHONE) return;
+  if (!env.ALLOWED_PHONE || msg.from !== env.ALLOWED_PHONE) {
+    console.warn('Mensaje ignorado: el número no coincide con ALLOWED_PHONE. Llegó desde ...' + String(msg.from || '').slice(-4) + ' (largo ' + String(msg.from || '').length + '), ALLOWED_PHONE tiene largo ' + String(env.ALLOWED_PHONE || '').length);
+    return;
+  }
   if (msg.type !== 'text' || !msg.text || !msg.text.body) {
     await reply(msg.from, 'Por ahora solo entiendo mensajes de texto. Escribe, por ejemplo: almuerzo 25000');
     return;
@@ -125,12 +128,16 @@ export default async (req) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
   const raw = await req.text();
-  if (!validSignature(raw, req.headers.get('x-hub-signature-256'))) return new Response('Bad signature', { status: 401 });
+  if (!validSignature(raw, req.headers.get('x-hub-signature-256'))) {
+    console.warn('Firma inválida: revisa que WHATSAPP_APP_SECRET sea el App secret actual de Meta. Secreto configurado: ' + (env.WHATSAPP_APP_SECRET ? 'sí' : 'NO'));
+    return new Response('Bad signature', { status: 401 });
+  }
 
   let body;
   try { body = JSON.parse(raw); } catch (e) { return new Response('Bad request', { status: 400 }); }
 
   const messages = (body.entry || []).flatMap((e) => (e.changes || []).flatMap((c) => (c.value && c.value.messages) || []));
+  console.log('Webhook recibido con ' + messages.length + ' mensaje(s)');
   for (const msg of messages) {
     try { await handleMessage(msg); } catch (e) { console.error('Error con un mensaje', e); }
   }
