@@ -53,7 +53,11 @@ const HELP =
   '• almuerzo 25000\n• uber 18k\n• mercado 85 mil\n• farmacia 23.500\n\n' +
   'Otros comandos: *resumen* (cuánto te queda este mes).';
 
-async function handleMessage(msg) {
+async function handleMessage(msg, contacts) {
+  // Meta a veces no manda 'from' (números con usuario de WhatsApp); probamos con el wa_id del contacto.
+  const c0 = (contacts && contacts[0]) || {};
+  if (!msg.from) msg.from = String(c0.wa_id || '');
+  if (!msg.from) console.warn('Mensaje sin from. Campos del mensaje: ' + Object.keys(msg).join(',') + ' | campos del contacto: ' + Object.keys(c0).join(','));
   // Solo atendemos TU número. Cualquier otro se ignora en silencio.
   if (!env.ALLOWED_PHONE || msg.from !== env.ALLOWED_PHONE) {
     console.warn('Mensaje ignorado: el número no coincide con ALLOWED_PHONE. Llegó desde ...' + String(msg.from || '').slice(-4) + ' (largo ' + String(msg.from || '').length + '), ALLOWED_PHONE tiene largo ' + String(env.ALLOWED_PHONE || '').length);
@@ -136,10 +140,13 @@ export default async (req) => {
   let body;
   try { body = JSON.parse(raw); } catch (e) { return new Response('Bad request', { status: 400 }); }
 
-  const messages = (body.entry || []).flatMap((e) => (e.changes || []).flatMap((c) => (c.value && c.value.messages) || []));
-  console.log('Webhook recibido con ' + messages.length + ' mensaje(s)');
-  for (const msg of messages) {
-    try { await handleMessage(msg); } catch (e) { console.error('Error con un mensaje', e); }
+  const values = (body.entry || []).flatMap((e) => (e.changes || []).map((c) => c.value || {}));
+  const total = values.reduce((n, v) => n + (v.messages || []).length, 0);
+  console.log('Webhook recibido con ' + total + ' mensaje(s)');
+  for (const v of values) {
+    for (const msg of v.messages || []) {
+      try { await handleMessage(msg, v.contacts); } catch (e) { console.error('Error con un mensaje', e); }
+    }
   }
   return new Response('ok', { status: 200 });
 };
